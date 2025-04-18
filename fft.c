@@ -24,6 +24,13 @@ complex_t complex_add(complex_t *l, complex_t *r) {
     };
 }
 
+complex_t complex_sub(complex_t *l, complex_t *r) {
+    return (complex_t) {
+        .real = l->real - r->real,
+        .imag = l->imag - r->imag
+    };
+}
+
 complex_t complex_mul(complex_t *l, complex_t *r) {
     return (complex_t) {
         .real = l->real * r->real - l->imag * r->imag,
@@ -36,33 +43,58 @@ typedef struct {
     size_t size;
 } complex_arr_t;
 
-void dft(complex_arr_t *in, complex_arr_t *out) {
-    //assert(in->size == out->size);
+void fft(complex_arr_t *in, complex_arr_t *out) {
+    assert(in->size == out->size);
+    assert(__builtin_popcount(in->size) == 1);
+
     size_t n = in->size;
 
-    for (size_t k = 0; k < out->size; k++) {
-        complex_t res = {0};
-        
-        for (size_t t = 0; t < n; t++) {
-            complex_t curr = in->items[t];
-        
-            float exp = 2 * M_PI * t * k / n;
+    if (n == 1) {
+        for (size_t i = 0; i < n; i++)
+            out->items[i] = in->items[i];
+        //memcpy(out->items, in->items, n);
+        return;
+    }
 
-            complex_t e_part = {
-                .real = cosf(exp),
-                .imag = -sinf(exp)
-            };
+    size_t half = n / 2;
+    complex_t even_buf[half];
+    complex_t odd_buf[half];
+    complex_t even_res_buf[half];
+    complex_t odd_res_buf[half];
 
-            complex_t iter = complex_mul(&curr, &e_part);
+    for (size_t i = 0; i < half; i++)
+        even_buf[i] = in->items[i * 2];
 
-            res = complex_add(&res, &iter);
-        }
-    
-        out->items[k] = res;
+    for (size_t i = 0; i < half; i++)
+        odd_buf[i] = in->items[i * 2 + 1];
+
+    fft(
+        &(complex_arr_t) { even_buf, half },
+        &(complex_arr_t) { even_res_buf, half}
+    );
+
+    fft(
+        &(complex_arr_t) { odd_buf, half },
+        &(complex_arr_t) { odd_res_buf, half}
+    );
+
+    float angle = 2 * M_PI / n;
+    complex_t w = { .real = 1 };
+    complex_t wn = { cosf(angle), -sinf(angle) };
+    for (size_t i = 0; i < half; i++) {
+        complex_t e_curr = even_res_buf[i];
+        complex_t o_curr = odd_res_buf[i];
+
+        complex_t m = complex_mul(&w, &o_curr);
+
+        out->items[i] = complex_add(&e_curr, &m);
+        out->items[i + half] = complex_sub(&e_curr, &m);
+
+        w = complex_mul(&w, &wn);
     }
 }
 
-void fft_samples(float *samples, float *fft, size_t n_samples, size_t needed_fft) {
+void fft_samples(float *samples, float *fft_out, size_t n_samples) {
     complex_t in_buf[SAMPLES];
     complex_t out_buf[20000];
 
@@ -82,14 +114,14 @@ void fft_samples(float *samples, float *fft, size_t n_samples, size_t needed_fft
 
     complex_arr_t out = {
         .items = out_buf,
-        .size = needed_fft 
+        .size = n_samples
     };
 
-    dft(&in, &out);
+    fft(&in, &out);
 
     for (size_t i = 0; i < out.size; i++) {
         complex_t curr = out.items[i];
 
-        fft[i] = MIN(40, MAX(0, curr.real));
+        fft_out[i] = MIN(40, MAX(0, curr.real));
     }
-} 
+}

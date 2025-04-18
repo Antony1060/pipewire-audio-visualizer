@@ -14,7 +14,7 @@
 typedef struct ctx_s {
     struct pw_main_loop *loop;
     struct pw_stream *stream;
-    
+
     struct spa_audio_info format;
     unsigned move: 1;
 
@@ -43,8 +43,12 @@ void *draw_thread_init(void *_ctx) {
     SetTargetFPS(165);
 
     (void) ctx;
-    
+
     while(!WindowShouldClose()) {
+        char title[64];
+        sprintf(title, "audio visualizer | fps: %d", GetFPS());
+        SetWindowTitle(title);
+
         BeginDrawing();
 
         ClearBackground(BLACK);
@@ -63,15 +67,15 @@ void *draw_thread_init(void *_ctx) {
         for (size_t i = 0; i < n_samples_total; i += n_channels) {
             samples[i / n_channels] = samples_all[i];
         }
-        
+
         int needed_fft_chunks = (int) (20000.0 / ((double) ctx->format.info.raw.rate / n_samples));
 
-        float fft[needed_fft_chunks];
+        float fft[n_samples];
 
 #if ENABLE_FREQ
-        fft_samples(samples, fft, n_samples, needed_fft_chunks);
+        fft_samples(samples, fft, n_samples);
 #else
-        memset(fft, 0, needed_fft_chunks * sizeof(float));
+        memset(fft, 0, n_samples * sizeof(float));
 #endif
 
         Vector2 coords[n_samples];
@@ -111,7 +115,7 @@ void *draw_thread_init(void *_ctx) {
 
 void on_state_changed(void *_ctx, enum pw_stream_state old, enum pw_stream_state new, const char *error) {
     (void) _ctx;
-    
+
     if (error)
         printf("state changed: error: %s\n", error);
 
@@ -138,19 +142,19 @@ void on_param_changed(void *_ctx, uint32_t id, const struct spa_pod *param) {
 
 void on_process(void *_ctx) {
         ctx_t *ctx = _ctx;
- 
+
         struct pw_buffer *b;
         if ((b = pw_stream_dequeue_buffer(ctx->stream)) == NULL) {
                 pw_log_warn("out of buffers: %m");
                 return;
         }
- 
+
         struct spa_buffer *buf = b->buffer;
-        
+
         float *samples;
         if ((samples = buf->datas[0].data) == NULL)
                 return;
- 
+
         uint32_t n_samples = buf->datas[0].chunk->size / sizeof(float);
         uint32_t n_channels = ctx->format.info.raw.channels;
 
@@ -213,12 +217,13 @@ int main(int argc, char **argv) {
 
     pw_stream_connect(ctx.stream,
             PW_DIRECTION_INPUT,
-            111,
+            //111,
+            PW_ID_ANY,
             PW_STREAM_FLAG_AUTOCONNECT |
             PW_STREAM_FLAG_MAP_BUFFERS |
             PW_STREAM_FLAG_RT_PROCESS,
             params, 1);
-    
+
     pw_main_loop_run(ctx.loop);
 
     CloseWindow();
