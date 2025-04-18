@@ -9,7 +9,8 @@
 
 #include "fft.c"
 
-#define ENABLE_FREQ 1
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MAX(a, b) ((a) < (b) ? (b) : (a))
 
 typedef struct ctx_s {
     struct pw_main_loop *loop;
@@ -30,6 +31,46 @@ void fill_vector_from_samples(float *samples, size_t n_samples, Vector2 *coords,
     }
 }
 
+void process_fft(float *fft, size_t n_samples) {
+    fft[0] = 0;
+
+    for (size_t i = 0; i < n_samples; i++) {
+        fft[i] = fabsf(fft[i]);
+    }
+}
+
+void avg_reduce_stream(float *src, size_t src_size, float *dst, size_t dst_size, int scale, int max, bool zero_ends) {
+    size_t chunk = src_size / (dst_size - (zero_ends ? 2 : 0));
+
+    for (size_t i = zero_ends ? 1 : 0; i < dst_size - (zero_ends ? 1 : 0); i++) {
+        float sum = 0;
+        for (size_t j = i * chunk; j < (i + 1) * chunk; j++)
+            sum += src[j];
+
+        dst[i] = sum / chunk;
+    }
+
+    for (size_t i = zero_ends ? 1 : 0; i < dst_size - (zero_ends ? 1 : 0); i++)
+        dst[i] = MIN(max, dst[i] * scale);
+
+    if (zero_ends) {
+        dst[0] = 0;
+        dst[dst_size - 1] = 0;
+    }
+}
+
+void merge_sample_channels(float *samples, float *dst, size_t n_samples, size_t n_channels) {
+    size_t dst_size = n_samples / n_channels;
+
+    for (size_t i = 0; i < dst_size; i++) {
+        float sum = 0;
+        for (size_t j = i * n_channels; j < (i + 1) * n_channels; j++)
+           sum += samples[j];
+
+        dst[i] = sum / n_channels; 
+    }
+}
+
 void *draw_thread_init(void *_ctx) {
     ctx_t *ctx = _ctx;
 
@@ -41,8 +82,6 @@ void *draw_thread_init(void *_ctx) {
 
     InitWindow(S_WIDTH, S_HEIGHT, "audio visualizer");
     SetTargetFPS(165);
-
-    (void) ctx;
 
     while(!WindowShouldClose()) {
         char title[64];
@@ -59,24 +98,19 @@ void *draw_thread_init(void *_ctx) {
         if (samples_all == NULL)
             continue;
 
-        // TODO: merge channels
         size_t n_samples = n_samples_total / n_channels;
 
         float samples[n_samples];
 
-        for (size_t i = 0; i < n_samples_total; i += n_channels) {
-            samples[i / n_channels] = samples_all[i];
-        }
+        merge_sample_channels(samples_all, samples, n_samples_total, n_channels);
+        //for (size_t i = 0; i < n_samples_total; i += n_channels) {
+        //    samples[i / n_channels] = samples_all[i];
+        //}
 
         int needed_fft_chunks = (int) (20000.0 / ((double) ctx->format.info.raw.rate / n_samples));
 
         float fft[n_samples];
-
-#if ENABLE_FREQ
         fft_samples(samples, fft, n_samples);
-#else
-        memset(fft, 0, n_samples * sizeof(float));
-#endif
 
         Vector2 coords[n_samples];
         Vector2 fft_coords[needed_fft_chunks];
@@ -86,7 +120,13 @@ void *draw_thread_init(void *_ctx) {
         fill_vector_from_samples(samples, n_samples, coords, S_HEIGHT / 2, PADDING, SCALE, (float) draw_width / n_samples);
 
 
-        fill_vector_from_samples(fft, needed_fft_chunks, fft_coords, S_HEIGHT, 0, 10, (float) S_WIDTH / needed_fft_chunks);
+        int freq_visible = needed_fft_chunks;
+        //int freq_visible = 256;
+        float fft_visible[freq_visible];
+        process_fft(fft, n_samples);
+        avg_reduce_stream(fft, needed_fft_chunks, fft_visible, freq_visible, 10, 350, true);
+//        fill_vector_from_samples(fft, needed_fft_chunks, fft_coords, S_HEIGHT, 0, 1, (float) S_WIDTH / needed_fft_chunks);
+        fill_vector_from_samples(fft_visible, freq_visible, fft_coords, S_HEIGHT, 0, 1, (float) S_WIDTH / freq_visible);
 
         for (size_t i = 0; i < n_samples - 1; i++) {
             Vector2 start = coords[i];
@@ -95,10 +135,7 @@ void *draw_thread_init(void *_ctx) {
             DrawLineBezier(start, end, 2.0f, ORANGE);
         }
 
-        for (int i = 0; i < needed_fft_chunks - 1; i++) {
-            if (i < 1)
-                continue;
-
+        for (int i = 0; i < freq_visible - 1; i++) {
             Vector2 start = fft_coords[i];
             Vector2 end = fft_coords[i + 1];
 
@@ -109,6 +146,8 @@ void *draw_thread_init(void *_ctx) {
     }
 
     CloseWindow();
+    
+    pw_main_loop_quit(ctx->loop);
 
     return NULL;
 }
@@ -141,28 +180,32 @@ void on_param_changed(void *_ctx, uint32_t id, const struct spa_pod *param) {
 }
 
 void on_process(void *_ctx) {
-        ctx_t *ctx = _ctx;
+    ctx_t *ctx = _ctx;
 
-        struct pw_buffer *b;
-        if ((b = pw_stream_dequeue_buffer(ctx->stream)) == NULL) {
-                pw_log_warn("out of buffers: %m");
-                return;
-        }
+    struct pw_buffer *b;
+    if ((b = pw_stream_dequeue_buffer(ctx->stream)) == NULL) {
+        pw_log_warn("out of buffers: %m");
+        return;
+    }
 
-        struct spa_buffer *buf = b->buffer;
+    struct spa_buffer *buf = b->buffer;
 
-        float *samples;
-        if ((samples = buf->datas[0].data) == NULL)
-                return;
+    float *samples;
+    if ((samples = buf->datas[0].data) == NULL)
+        return;
 
-        uint32_t n_samples = buf->datas[0].chunk->size / sizeof(float);
-        uint32_t n_channels = ctx->format.info.raw.channels;
+    uint32_t n_samples = buf->datas[0].chunk->size / sizeof(float);
+    uint32_t n_channels = ctx->format.info.raw.channels;
 
-        ctx->samples = samples;
-        ctx->n_samples = n_samples;
-        ctx->n_channels = n_channels;
+    if (ctx->n_samples != n_samples || ctx->n_channels != n_channels) {
+        printf("samples: %d | channles: %d | samples_per_channel: %d\n", n_samples, n_channels, n_samples / n_channels);
+    }
+        
+    ctx->samples = samples;
+    ctx->n_samples = n_samples;
+    ctx->n_channels = n_channels;
 
-        pw_stream_queue_buffer(ctx->stream, b);
+    pw_stream_queue_buffer(ctx->stream, b);
 }
 
 struct pw_stream_events stream_events = {
@@ -217,8 +260,8 @@ int main(int argc, char **argv) {
 
     pw_stream_connect(ctx.stream,
             PW_DIRECTION_INPUT,
-            //111,
-            PW_ID_ANY,
+            126,
+            //PW_ID_ANY,
             PW_STREAM_FLAG_AUTOCONNECT |
             PW_STREAM_FLAG_MAP_BUFFERS |
             PW_STREAM_FLAG_RT_PROCESS,

@@ -9,9 +9,6 @@
 #define SAMPLES 2048
 #define SAMPLE_RATE 44100
 
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
-#define MAX(a, b) ((a) < (b) ? (b) : (a))
-
 typedef struct {
     float real;
     float imag;
@@ -122,6 +119,6 @@ void fft_samples(float *samples, float *fft_out, size_t n_samples) {
     for (size_t i = 0; i < out.size; i++) {
         complex_t curr = out.items[i];
 
-        fft_out[i] = MIN(40, MAX(0, curr.real));
+        fft_out[i] = curr.real;
     }
 }
