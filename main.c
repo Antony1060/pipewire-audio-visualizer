@@ -157,7 +157,7 @@ void *draw_thread_init(void *_ctx) {
             Vector2 end = coords[i + 1];
             Vector2 start2 = coords[i + 2];
 
-            Color color = color_progression(1 - (fabsf(samples[i + 1]) / sample_max / 2));
+            Color color = color_progression(fabsf(1 - (fabsf(samples[i + 1]) / sample_max / 2)));
             DrawLineBezier(start, end, 2.0f, color);
             DrawLineBezier(end, start2, 2.0f, color);
         }
