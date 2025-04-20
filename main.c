@@ -73,6 +73,28 @@ void merge_sample_channels(float *samples, float *dst, size_t n_samples, size_t 
     }
 }
 
+Color color_progression(float progress) {
+    assert(progress <= 1 && progress >= 0);
+
+    Color color = CLITERAL(Color) { 0, 0, 0, 255 };
+
+    if (progress <= 0.25) {
+        color.g = 255;
+        color.b = (progress / 0.25) * 255;
+    } else if (progress <= 0.50) {
+        color.b = 255;
+        color.g = 255 - (((progress - 0.25) / 0.25) * 255);
+    } else if (progress <= 0.75) {
+        color.b = 255;
+        color.r = ((progress - 0.5) / 0.25) * 255;
+    } else if (progress <= 1) {
+        color.r = 255;
+        color.b = 255 - (((progress - 0.75) / 0.25) * 255);
+    }
+
+    return color;
+}
+
 void *draw_thread_init(void *_ctx) {
     ctx_t *ctx = _ctx;
 
@@ -106,6 +128,10 @@ void *draw_thread_init(void *_ctx) {
 
         merge_sample_channels(samples_all, samples, n_samples_total, n_channels);
 
+        float sample_max = 0;
+        for (size_t i = 0; i < n_samples; i++)
+            sample_max = MAX(sample_max, fabsf(samples[i]));
+
         int needed_fft_chunks = (int) (20000.0 / ((double) ctx->format.info.raw.rate / n_samples));
 
         float fft[n_samples];
@@ -126,11 +152,14 @@ void *draw_thread_init(void *_ctx) {
 
         fill_vector_from_samples(fft_visible, freq_visible, fft_coords, S_HEIGHT - 1, 0, 1, (float) S_WIDTH / freq_visible);
 
-        for (size_t i = 0; i < n_samples - 1; i++) {
+        for (size_t i = 0; i < n_samples - 2; i += 2) {
             Vector2 start = coords[i];
             Vector2 end = coords[i + 1];
+            Vector2 start2 = coords[i + 2];
 
-            DrawLineBezier(start, end, 2.0f, ORANGE);
+            Color color = color_progression(1 - (fabsf(samples[i + 1]) / sample_max / 2));
+            DrawLineBezier(start, end, 2.0f, color);
+            DrawLineBezier(end, start2, 2.0f, color);
         }
 
         float freq_draw_width = (float) (S_WIDTH / freq_visible);
