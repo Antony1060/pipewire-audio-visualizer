@@ -47,9 +47,7 @@ void fft(complex_arr_t *in, complex_arr_t *out) {
     size_t n = in->size;
 
     if (n == 1) {
-        for (size_t i = 0; i < n; i++)
-            out->items[i] = in->items[i];
-        //memcpy(out->items, in->items, n);
+        memcpy(out->items, in->items, n * sizeof(complex_t));
         return;
     }
 

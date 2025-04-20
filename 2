@@ -40,24 +40,24 @@ void process_fft(float *fft, size_t n_samples) {
 }
 
 void avg_reduce_stream(float *src, size_t src_size, float *dst, size_t dst_size, int max, int scale) {
-    dst[0] = 0;
-    dst[dst_size - 1] = 0;
+   dst[0] = 0;
+   dst[dst_size - 1] = 0;
 
-    size_t chunk = src_size / (dst_size - 2);
+   size_t chunk = src_size / (dst_size - 2);
 
     for (size_t i = 1; i < dst_size - 1; i++) {
         float sum = 0;
         for (size_t j = i * chunk; j < (i + 1) * chunk; j++)
             sum += src[j];
 
-        dst[i] = (sum / chunk) * scale;
+        dst[i] = sum / chunk;
     }
 
     float sample_max = 0;
     for (size_t i = 0; i < dst_size; i++)
         sample_max = MAX(sample_max, dst[i]);
     
-    max = MIN(sample_max, max);
+    max = MIN(sample_max / scale, max);
 
     for (size_t i = 1; i < dst_size; i++)
         dst[i] = (dst[i] / sample_max) * max;
@@ -125,7 +125,7 @@ void *draw_thread_init(void *_ctx) {
         //int freq_visible = 256;
         float fft_visible[freq_visible];
         process_fft(fft, n_samples);
-        avg_reduce_stream(fft, needed_fft_chunks, fft_visible, freq_visible, 350, 4);
+        avg_reduce_stream(fft, needed_fft_chunks, fft_visible, freq_visible, 350);
 //        fill_vector_from_samples(fft, needed_fft_chunks, fft_coords, S_HEIGHT, 0, 1, (float) S_WIDTH / needed_fft_chunks);
         fill_vector_from_samples(fft_visible, freq_visible, fft_coords, S_HEIGHT, 0, 1, (float) S_WIDTH / freq_visible);
 
