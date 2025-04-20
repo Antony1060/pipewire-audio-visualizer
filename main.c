@@ -121,11 +121,12 @@ void *draw_thread_init(void *_ctx) {
         fill_vector_from_samples(samples, n_samples, coords, S_HEIGHT / 2, PADDING, SCALE, (float) draw_width / n_samples);
 
 
-        int freq_visible = needed_fft_chunks;
-        //int freq_visible = 256;
+        //int freq_visible = needed_fft_chunks;
+        //int freq_visible = 512;
+        int freq_visible = 256;
         float fft_visible[freq_visible];
         process_fft(fft, n_samples);
-        avg_reduce_stream(fft, needed_fft_chunks, fft_visible, freq_visible, 350, 4);
+        avg_reduce_stream(fft, needed_fft_chunks, fft_visible, freq_visible, 350, 8);
 //        fill_vector_from_samples(fft, needed_fft_chunks, fft_coords, S_HEIGHT, 0, 1, (float) S_WIDTH / needed_fft_chunks);
         fill_vector_from_samples(fft_visible, freq_visible, fft_coords, S_HEIGHT, 0, 1, (float) S_WIDTH / freq_visible);
 
@@ -136,12 +137,13 @@ void *draw_thread_init(void *_ctx) {
             DrawLineBezier(start, end, 2.0f, ORANGE);
         }
 
-        for (int i = 0; i < freq_visible - 1; i++) {
-            Vector2 start = fft_coords[i];
-            Vector2 end = fft_coords[i + 1];
-
-            DrawLineBezier(start, end, 2.0f, BLUE);
-       }
+        for (int i = 0; i < freq_visible; i++) {
+            Vector2 point = fft_coords[i];
+           
+            DrawRectangle(point.x, point.y, (float) (S_WIDTH / freq_visible), S_HEIGHT - point.y, BLUE);
+            //DrawLineBezier(start, end, 2.0f, BLUE);
+            
+        }
 
         EndDrawing();
     }
