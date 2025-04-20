@@ -12,6 +12,9 @@
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) < (b) ? (b) : (a))
 
+// visual effect
+#define MIRROR_FREQ 1
+
 typedef struct ctx_s {
     struct pw_main_loop *loop;
     struct pw_stream *stream;
@@ -32,20 +35,15 @@ void fill_vector_from_samples(float *samples, size_t n_samples, Vector2 *coords,
 }
 
 void process_fft(float *fft, size_t n_samples) {
-    fft[0] = 0;
-
     for (size_t i = 0; i < n_samples; i++) {
         fft[i] = fabsf(fft[i]);
     }
 }
 
 void avg_reduce_stream(float *src, size_t src_size, float *dst, size_t dst_size, int max, int scale) {
-    dst[0] = 0;
-    dst[dst_size - 1] = 0;
+    size_t chunk = src_size / dst_size;
 
-    size_t chunk = src_size / (dst_size - 2);
-
-    for (size_t i = 1; i < dst_size - 1; i++) {
+    for (size_t i = 0; i < dst_size; i++) {
         float sum = 0;
         for (size_t j = i * chunk; j < (i + 1) * chunk; j++)
             sum += src[j];
@@ -59,7 +57,7 @@ void avg_reduce_stream(float *src, size_t src_size, float *dst, size_t dst_size,
     
     max = MIN(sample_max, max);
 
-    for (size_t i = 1; i < dst_size; i++)
+    for (size_t i = 0; i < dst_size; i++)
         dst[i] = (dst[i] / sample_max) * max;
 }
 
@@ -113,22 +111,20 @@ void *draw_thread_init(void *_ctx) {
         float fft[n_samples];
         fft_samples(samples, fft, n_samples);
 
-        Vector2 coords[n_samples];
         Vector2 fft_coords[needed_fft_chunks];
+        Vector2 coords[n_samples];
 
         int draw_width = S_WIDTH - PADDING * 2;
 
         fill_vector_from_samples(samples, n_samples, coords, S_HEIGHT / 2, PADDING, SCALE, (float) draw_width / n_samples);
 
-
-        //int freq_visible = needed_fft_chunks;
-        //int freq_visible = 512;
-        int freq_visible = 256;
+        int freq_visible = MIN(256, needed_fft_chunks);
         float fft_visible[freq_visible];
         process_fft(fft, n_samples);
         avg_reduce_stream(fft, needed_fft_chunks, fft_visible, freq_visible, 350, 8);
-//        fill_vector_from_samples(fft, needed_fft_chunks, fft_coords, S_HEIGHT, 0, 1, (float) S_WIDTH / needed_fft_chunks);
-        fill_vector_from_samples(fft_visible, freq_visible, fft_coords, S_HEIGHT, 0, 1, (float) S_WIDTH / freq_visible);
+
+
+        fill_vector_from_samples(fft_visible, freq_visible, fft_coords, S_HEIGHT - 1, 0, 1, (float) S_WIDTH / freq_visible);
 
         for (size_t i = 0; i < n_samples - 1; i++) {
             Vector2 start = coords[i];
@@ -137,13 +133,20 @@ void *draw_thread_init(void *_ctx) {
             DrawLineBezier(start, end, 2.0f, ORANGE);
         }
 
+        float freq_draw_width = (float) (S_WIDTH / freq_visible);
         for (int i = 0; i < freq_visible; i++) {
             Vector2 point = fft_coords[i];
            
-            DrawRectangle(point.x, point.y, (float) (S_WIDTH / freq_visible), S_HEIGHT - point.y, BLUE);
-            //DrawLineBezier(start, end, 2.0f, BLUE);
-            
+            DrawRectangle(point.x, point.y, freq_draw_width, S_HEIGHT - point.y, BLUE);
         }
+
+#if MIRROR_FREQ
+        for (int i = 0; i < freq_visible; i++) {
+            Vector2 point = fft_coords[i];
+           
+            DrawRectangle(S_WIDTH - point.x, point.y, freq_draw_width, S_HEIGHT - point.y, BLUE);
+        }
+#endif
 
         EndDrawing();
     }
