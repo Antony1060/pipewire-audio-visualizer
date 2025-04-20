@@ -98,12 +98,15 @@ Color color_progression(float progress) {
 void *draw_thread_init(void *_ctx) {
     ctx_t *ctx = _ctx;
 
-    const int S_WIDTH = 1920;
-    const int S_HEIGHT = S_WIDTH / 16 * 9;
+    const int S_WIDTH = 2560;
+    const int S_HEIGHT = S_WIDTH / 16 * 9 - 40;
+    
+    printf("w %d | h %d | m %d\n", S_WIDTH, S_HEIGHT, GetCurrentMonitor());
 
-    const int PADDING = 20;
+    const int PADDING = 0;
     const int SCALE = 300;
 
+    SetConfigFlags(FLAG_WINDOW_TRANSPARENT | FLAG_WINDOW_UNDECORATED);
     InitWindow(S_WIDTH, S_HEIGHT, "audio visualizer");
     SetTargetFPS(165);
 
@@ -114,7 +117,7 @@ void *draw_thread_init(void *_ctx) {
 
         BeginDrawing();
 
-        ClearBackground(BLACK);
+        ClearBackground(BLANK);
 
         float *samples_all = ctx->samples;
         size_t n_samples_total = ctx->n_samples;
@@ -147,7 +150,7 @@ void *draw_thread_init(void *_ctx) {
         int freq_visible = MIN(256, needed_fft_chunks);
         float fft_visible[freq_visible];
         process_fft(fft, n_samples);
-        avg_reduce_stream(fft, needed_fft_chunks, fft_visible, freq_visible, 350, 8);
+        avg_reduce_stream(fft, needed_fft_chunks, fft_visible, freq_visible, 400, 8);
 
 
         fill_vector_from_samples(fft_visible, freq_visible, fft_coords, S_HEIGHT - 1, 0, 1, (float) S_WIDTH / freq_visible);
@@ -172,8 +175,9 @@ void *draw_thread_init(void *_ctx) {
 #if MIRROR_FREQ
         for (int i = 0; i < freq_visible; i++) {
             Vector2 point = fft_coords[i];
-           
-            DrawRectangle(S_WIDTH - point.x, point.y, freq_draw_width, S_HEIGHT - point.y, BLUE);
+          
+            // weird rendering bug on first bar (I assume it's just floating point fuckery) 
+            DrawRectangle(S_WIDTH - point.x - (i == 0 ? freq_draw_width + 0.1: freq_draw_width), point.y, freq_draw_width, S_HEIGHT - point.y, BLUE);
         }
 #endif
 
