@@ -8,6 +8,7 @@
 #include<pthread.h>
 
 #include "fft.c"
+#include "spotify_dbus.c"
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) < (b) ? (b) : (a))
@@ -29,7 +30,7 @@ typedef struct ctx_s {
 
 void fill_vector_from_samples(float *samples, size_t n_samples, Vector2 *coords, float centerline, int padding, float scale, float sample_chunk) {
     for (size_t i = 0; i < n_samples; i++) {
-        coords[i].x = padding + sample_chunk * i;
+        coords[i].x = padding + sample_chunk * (i + 1);
         coords[i].y = centerline - (samples[i] * scale);
     }
 }
@@ -74,6 +75,7 @@ void merge_sample_channels(float *samples, float *dst, size_t n_samples, size_t 
 }
 
 Color color_progression(float progress) {
+    progress = MAX(MIN(progress, 1), 0);
     assert(progress <= 1 && progress >= 0);
 
     Color color = CLITERAL(Color) { 0, 0, 0, 255 };
@@ -99,16 +101,20 @@ void *draw_thread_init(void *_ctx) {
     ctx_t *ctx = _ctx;
 
     const int S_WIDTH = 2560;
-    const int S_HEIGHT = S_WIDTH / 16 * 9 - 40;
+    const int S_HEIGHT = S_WIDTH / 16 * 9 - 42;
     
-    printf("w %d | h %d | m %d\n", S_WIDTH, S_HEIGHT, GetCurrentMonitor());
-
     const int PADDING = 0;
     const int SCALE = 300;
 
     SetConfigFlags(FLAG_WINDOW_TRANSPARENT | FLAG_WINDOW_UNDECORATED);
     InitWindow(S_WIDTH, S_HEIGHT, "audio visualizer");
     SetTargetFPS(165);
+
+    SetWindowMonitor(2);
+
+    const time_t SPOTIFY_FETCH_INTERVAL = 1;
+    spotify_data_t spotify_data = {0};
+    time_t spotify_last_get = 0;
 
     while(!WindowShouldClose()) {
         char title[64];
@@ -118,6 +124,17 @@ void *draw_thread_init(void *_ctx) {
         BeginDrawing();
 
         ClearBackground(BLANK);
+
+        time_t now = time(NULL);
+        if (now - spotify_last_get >= SPOTIFY_FETCH_INTERVAL || spotify_data.artist == 0) {
+            get_spotify_data(&spotify_data);
+            spotify_last_get = now;
+        }
+
+        if (spotify_data.artist != 0) {
+            DrawText(spotify_data.artist, 100, 100, 32, WHITE);
+            DrawText(spotify_data.title, 100, 140, 64, WHITE);
+        }
 
         float *samples_all = ctx->samples;
         size_t n_samples_total = ctx->n_samples;
@@ -146,7 +163,11 @@ void *draw_thread_init(void *_ctx) {
         int draw_width = S_WIDTH - PADDING * 2;
 
         fill_vector_from_samples(samples, n_samples, coords, S_HEIGHT / 2, PADDING, SCALE, (float) draw_width / n_samples);
+        // peg first and last point to the edge, otherwise there will be a small gap at either side
+        coords[0].x = PADDING;
+        coords[n_samples - 1].x = S_WIDTH - PADDING;
 
+        
         int freq_visible = MIN(256, needed_fft_chunks);
         float fft_visible[freq_visible];
         process_fft(fft, n_samples);
@@ -155,29 +176,33 @@ void *draw_thread_init(void *_ctx) {
 
         fill_vector_from_samples(fft_visible, freq_visible, fft_coords, S_HEIGHT - 1, 0, 1, (float) S_WIDTH / freq_visible);
 
-        for (size_t i = 0; i < n_samples - 2; i += 2) {
+        for (size_t i = 0; i < n_samples - 1; i += 2) {
             Vector2 start = coords[i];
             Vector2 end = coords[i + 1];
-            Vector2 start2 = coords[i + 2];
 
             Color color = color_progression(fabsf(1 - (fabsf(samples[i + 1]) / sample_max / 2)));
             DrawLineBezier(start, end, 2.0f, color);
-            DrawLineBezier(end, start2, 2.0f, color);
-        }
 
+            if (i + 2 < n_samples) {
+                Vector2 start2 = coords[i + 2];
+                DrawLineBezier(end, start2, 2.0f, color);
+            }
+        }
+        
         float freq_draw_width = (float) (S_WIDTH / freq_visible);
         for (int i = 0; i < freq_visible; i++) {
             Vector2 point = fft_coords[i];
-           
-            DrawRectangle(point.x, point.y, freq_draw_width, S_HEIGHT - point.y, BLUE);
+          
+            float x_shift = i == freq_visible - 1 ? freq_draw_width + 0.1 : freq_draw_width;
+            // weird rendering bug on first bar (I assume it's just floating point fuckery) 
+            DrawRectangle(point.x - x_shift, point.y, freq_draw_width, S_HEIGHT - point.y, BLUE);
         }
 
 #if MIRROR_FREQ
         for (int i = 0; i < freq_visible; i++) {
-            Vector2 point = fft_coords[i];
-          
-            // weird rendering bug on first bar (I assume it's just floating point fuckery) 
-            DrawRectangle(S_WIDTH - point.x - (i == 0 ? freq_draw_width + 0.1: freq_draw_width), point.y, freq_draw_width, S_HEIGHT - point.y, BLUE);
+            Vector2 point = fft_coords[i];         
+
+            DrawRectangle(S_WIDTH - point.x, point.y, freq_draw_width, S_HEIGHT - point.y, BLUE);
         }
 #endif
 
@@ -299,7 +324,7 @@ int main(int argc, char **argv) {
 
     pw_stream_connect(ctx.stream,
             PW_DIRECTION_INPUT,
-            124,
+            116,
             //PW_ID_ANY,
             PW_STREAM_FLAG_AUTOCONNECT |
             PW_STREAM_FLAG_MAP_BUFFERS |
