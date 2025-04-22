@@ -16,6 +16,18 @@
 // visual effect
 #define MIRROR_FREQ 1
 
+#define LOG_TIMINGS 0
+
+#if LOG_TIMINGS
+#define NANOS_PER_SEC 1000000000
+
+static float timespec_diff_ns(struct timespec *start, struct timespec *end) {
+    time_t sec_diff = end->tv_sec - start->tv_sec;
+
+    return sec_diff * NANOS_PER_SEC + (end->tv_nsec - start->tv_nsec);
+}
+#endif
+
 typedef struct ctx_s {
     struct pw_main_loop *loop;
     struct pw_stream *stream;
@@ -24,8 +36,12 @@ typedef struct ctx_s {
     unsigned move: 1;
 
     float *samples;
+    float *fft;
     size_t n_samples;
     size_t n_channels;
+
+    struct timespec _last_render;
+    struct timespec _last_audio_buffer;
 } ctx_t;
 
 void fill_vector_from_samples(float *samples, size_t n_samples, Vector2 *coords, float centerline, int padding, float scale, float sample_chunk) {
@@ -110,6 +126,8 @@ void *draw_thread_init(void *_ctx) {
     InitWindow(S_WIDTH, S_HEIGHT, "audio visualizer");
     SetTargetFPS(165);
 
+    //SetWindowMonitor(0);
+    //SetWindowMonitor(1);
     SetWindowMonitor(2);
 
     const time_t SPOTIFY_FETCH_INTERVAL = 1;
@@ -117,6 +135,9 @@ void *draw_thread_init(void *_ctx) {
     time_t spotify_last_get = 0;
 
     while(!WindowShouldClose()) {
+        struct timespec render_start;
+        clock_gettime(CLOCK_REALTIME, &render_start);
+
         char title[64];
         sprintf(title, "audio visualizer | fps: %d", GetFPS());
         SetWindowTitle(title);
@@ -154,8 +175,7 @@ void *draw_thread_init(void *_ctx) {
 
         int needed_fft_chunks = (int) (20000.0 / ((double) ctx->format.info.raw.rate / n_samples));
 
-        float fft[n_samples];
-        fft_samples(samples, fft, n_samples);
+        float *fft = ctx->fft;
 
         Vector2 fft_coords[needed_fft_chunks];
         Vector2 coords[n_samples];
@@ -167,12 +187,11 @@ void *draw_thread_init(void *_ctx) {
         coords[0].x = PADDING;
         coords[n_samples - 1].x = S_WIDTH - PADDING;
 
-        
         int freq_visible = MIN(256, needed_fft_chunks);
+//        printf("needed %d\n", needed_fft_chunks);
         float fft_visible[freq_visible];
         process_fft(fft, n_samples);
         avg_reduce_stream(fft, needed_fft_chunks, fft_visible, freq_visible, 400, 8);
-
 
         fill_vector_from_samples(fft_visible, freq_visible, fft_coords, S_HEIGHT - 1, 0, 1, (float) S_WIDTH / freq_visible);
 
@@ -205,6 +224,15 @@ void *draw_thread_init(void *_ctx) {
             DrawRectangle(S_WIDTH - point.x, point.y, freq_draw_width, S_HEIGHT - point.y, BLUE);
         }
 #endif
+
+        struct timespec render_end;
+        clock_gettime(CLOCK_REALTIME, &render_end);
+#if LOG_TIMINGS
+        float diff_ms = timespec_diff_ns(&render_start, &render_end) / 1000000;
+        float last_diff_ms = timespec_diff_ns(&ctx->_last_render, &render_start) / 1000000;
+        printf("render took %.2fms (%d/sec) (last was %.2fms ago)\n", diff_ms, (int) (1000 / diff_ms), last_diff_ms);
+#endif
+        ctx->_last_render = render_end;
 
         EndDrawing();
     }
@@ -258,6 +286,8 @@ void on_process(void *_ctx) {
     if ((samples = buf->datas[0].data) == NULL)
         return;
 
+    struct timespec audio_start;
+    clock_gettime(CLOCK_REALTIME, &audio_start);
     uint32_t n_samples = buf->datas[0].chunk->size / sizeof(float);
     uint32_t n_channels = ctx->format.info.raw.channels;
 
@@ -268,8 +298,18 @@ void on_process(void *_ctx) {
     ctx->samples = samples;
     ctx->n_samples = n_samples;
     ctx->n_channels = n_channels;
-
+    fft_samples(samples, ctx->fft, n_samples);
+    
     pw_stream_queue_buffer(ctx->stream, b);
+
+    struct timespec audio_end;
+    clock_gettime(CLOCK_REALTIME, &audio_end);
+#if LOG_TIMINGS
+    float diff_ns = timespec_diff_ns(&audio_start, &audio_end);
+    float last_diff_ms = timespec_diff_ns(&ctx->_last_audio_buffer, &audio_start) / 1000000;
+    printf("audio sample cycle took %.2fns (%d/sec) (last was %.2fms ago)\n", diff_ns, (int) (NANOS_PER_SEC / diff_ns), last_diff_ms);
+#endif
+    ctx->_last_audio_buffer = audio_end;
 }
 
 struct pw_stream_events stream_events = {
@@ -286,7 +326,10 @@ void do_quit(void *data, int signal) {
 }
 
 int main(int argc, char **argv) {
-    ctx_t ctx = {0};
+    float fft_buffer[10240];
+    ctx_t ctx = {
+        .fft = fft_buffer
+    };
 
     pthread_t tid;
     pthread_create(&tid, NULL, draw_thread_init, &ctx);
@@ -324,7 +367,7 @@ int main(int argc, char **argv) {
 
     pw_stream_connect(ctx.stream,
             PW_DIRECTION_INPUT,
-            116,
+            125,
             //PW_ID_ANY,
             PW_STREAM_FLAG_AUTOCONNECT |
             PW_STREAM_FLAG_MAP_BUFFERS |
