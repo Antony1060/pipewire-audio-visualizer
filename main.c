@@ -18,6 +18,8 @@
 
 #define LOG_TIMINGS 0
 
+const float SAMPLE_BOOST = 40;
+
 #if LOG_TIMINGS
 #define NANOS_PER_SEC 1000000000
 
@@ -43,6 +45,12 @@ typedef struct ctx_s {
     struct timespec _last_render;
     struct timespec _last_audio_buffer;
 } ctx_t;
+
+void process_samples(float *samples, size_t n_samples) {
+    for (size_t i = 0; i < n_samples; i++) {
+        samples[i] *= SAMPLE_BOOST;
+    }
+}
 
 void fill_vector_from_samples(float *samples, size_t n_samples, Vector2 *coords, float centerline, int padding, float scale, float sample_chunk) {
     for (size_t i = 0; i < n_samples; i++) {
@@ -298,6 +306,7 @@ void on_process(void *_ctx) {
     ctx->samples = samples;
     ctx->n_samples = n_samples;
     ctx->n_channels = n_channels;
+    process_samples(samples, n_samples);
     fft_samples(samples, ctx->fft, n_samples);
     
     pw_stream_queue_buffer(ctx->stream, b);
@@ -367,7 +376,7 @@ int main(int argc, char **argv) {
 
     pw_stream_connect(ctx.stream,
             PW_DIRECTION_INPUT,
-            125,
+            129,
             //PW_ID_ANY,
             PW_STREAM_FLAG_AUTOCONNECT |
             PW_STREAM_FLAG_MAP_BUFFERS |
