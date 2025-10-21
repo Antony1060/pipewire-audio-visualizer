@@ -18,8 +18,6 @@
 
 #define LOG_TIMINGS 0
 
-const float SAMPLE_BOOST = 40;
-
 #if LOG_TIMINGS
 #define NANOS_PER_SEC 1000000000
 
@@ -29,6 +27,14 @@ static float timespec_diff_ns(struct timespec *start, struct timespec *end) {
     return sec_diff * NANOS_PER_SEC + (end->tv_nsec - start->tv_nsec);
 }
 #endif
+
+typedef struct opts_s {
+    int monitor;
+    float sample_boost;
+    int width;
+    int height;
+    int pw_source;
+} opts_t;
 
 typedef struct ctx_s {
     struct pw_main_loop *loop;
@@ -42,13 +48,15 @@ typedef struct ctx_s {
     size_t n_samples;
     size_t n_channels;
 
+    opts_t opts;
+
     struct timespec _last_render;
     struct timespec _last_audio_buffer;
 } ctx_t;
 
-void process_samples(float *samples, size_t n_samples) {
+void process_samples(ctx_t *ctx, float *samples, size_t n_samples) {
     for (size_t i = 0; i < n_samples; i++) {
-        samples[i] *= SAMPLE_BOOST;
+        samples[i] *= ctx->opts.sample_boost;
     }
 }
 
@@ -79,7 +87,7 @@ void avg_reduce_stream(float *src, size_t src_size, float *dst, size_t dst_size,
     float sample_max = 0;
     for (size_t i = 0; i < dst_size; i++)
         sample_max = MAX(sample_max, dst[i]);
-    
+
     max = MIN(sample_max, max);
 
     for (size_t i = 0; i < dst_size; i++)
@@ -94,7 +102,7 @@ void merge_sample_channels(float *samples, float *dst, size_t n_samples, size_t 
         for (size_t j = i * n_channels; j < (i + 1) * n_channels; j++)
            sum += samples[j];
 
-        dst[i] = sum / n_channels; 
+        dst[i] = sum / n_channels;
     }
 }
 
@@ -123,20 +131,22 @@ Color color_progression(float progress) {
 
 void *draw_thread_init(void *_ctx) {
     ctx_t *ctx = _ctx;
-
-    const int S_WIDTH = 2560;
-    const int S_HEIGHT = S_WIDTH / 16 * 9 - 42;
     
+    SetConfigFlags(FLAG_WINDOW_TRANSPARENT | FLAG_WINDOW_UNDECORATED);
+
     const int PADDING = 0;
     const int SCALE = 300;
 
-    SetConfigFlags(FLAG_WINDOW_TRANSPARENT | FLAG_WINDOW_UNDECORATED);
-    InitWindow(S_WIDTH, S_HEIGHT, "audio visualizer");
-    SetTargetFPS(165);
+    const int REFRESH_RATE = GetMonitorRefreshRate(ctx->opts.monitor);
+    SetTargetFPS(REFRESH_RATE);
 
-    //SetWindowMonitor(0);
-    //SetWindowMonitor(1);
-    SetWindowMonitor(2);
+    InitWindow(0, 0, "audio visualizer");
+
+    const int S_WIDTH = ctx->opts.width == 0 ? GetMonitorWidth(ctx->opts.monitor) : ctx->opts.width;
+    const int S_HEIGHT = ctx->opts.height == 0 ? GetMonitorHeight(ctx->opts.monitor) : ctx->opts.height;
+    SetWindowMonitor(ctx->opts.monitor);
+    
+    SetWindowSize(S_WIDTH, S_HEIGHT);
 
     const time_t SPOTIFY_FETCH_INTERVAL = 1;
     spotify_data_t spotify_data = {0};
@@ -215,19 +225,19 @@ void *draw_thread_init(void *_ctx) {
                 DrawLineBezier(end, start2, 2.0f, color);
             }
         }
-        
+
         float freq_draw_width = (float) (S_WIDTH / freq_visible);
         for (int i = 0; i < freq_visible; i++) {
             Vector2 point = fft_coords[i];
-          
+
             float x_shift = i == freq_visible - 1 ? freq_draw_width + 0.1 : freq_draw_width;
-            // weird rendering bug on first bar (I assume it's just floating point fuckery) 
+            // weird rendering bug on first bar (I assume it's just floating point fuckery)
             DrawRectangle(point.x - x_shift, point.y, freq_draw_width, S_HEIGHT - point.y, BLUE);
         }
 
 #if MIRROR_FREQ
         for (int i = 0; i < freq_visible; i++) {
-            Vector2 point = fft_coords[i];         
+            Vector2 point = fft_coords[i];
 
             DrawRectangle(S_WIDTH - point.x, point.y, freq_draw_width, S_HEIGHT - point.y, BLUE);
         }
@@ -246,7 +256,7 @@ void *draw_thread_init(void *_ctx) {
     }
 
     CloseWindow();
-    
+
     pw_main_loop_quit(ctx->loop);
 
     return NULL;
@@ -302,13 +312,13 @@ void on_process(void *_ctx) {
     if (ctx->n_samples != n_samples || ctx->n_channels != n_channels) {
         printf("samples: %d | channles: %d | samples_per_channel: %d\n", n_samples, n_channels, n_samples / n_channels);
     }
-        
+
     ctx->samples = samples;
     ctx->n_samples = n_samples;
     ctx->n_channels = n_channels;
-    process_samples(samples, n_samples);
+    process_samples(ctx, samples, n_samples);
     fft_samples(samples, ctx->fft, n_samples);
-    
+
     pw_stream_queue_buffer(ctx->stream, b);
 
     struct timespec audio_end;
@@ -334,10 +344,82 @@ void do_quit(void *data, int signal) {
     pw_main_loop_quit(((ctx_t *) data)->loop);
 }
 
+void print_help(char *argv0) {
+    printf("Usage: %s [options]\n", argv0);
+    printf("    --help\n    \tdisplay this\n");
+    printf("    --monitor/-m\n    \tint, usually 0-indexed, set the monitor to display the visualizer\n");
+    printf("    --sample-boost/-sb\n    \tfloat, sometimes samples are too quiet to display nicely, this boosts them by some factor\n");
+    printf("    --width/-w\n    \tint, default is monitor width\n");
+    printf("    --height/-h\n    \tint, default is monitor height\n");
+    printf("    --pw-source/-s\n    \tint, PipeWire node for source audio from, see --pw-source-list\n");
+    printf("    --pw-source-lists\n    \tlist all PipeWire nodes\n");
+}
+
+void print_pw_sources() {
+    printf("TODO\n");
+}
+
+int cli_parse(int argc, char **argv, opts_t *opts) {
+    for (int i = 0; i < argc; i++) {
+        char *arg = argv[i];
+        
+        if (!strcmp(arg, "--help")) {
+            print_help(argv[0]);
+            return 0;
+        }
+        
+        if (!strcmp(arg, "--pw-source-list")) {
+            print_pw_sources();
+            return 0;
+        }
+        
+        if ((!strcmp(arg, "--monitor") || !strcmp(arg, "-m")) && i + 1 < argc) {
+            sscanf(argv[++i], "%d", &opts->monitor);
+            continue;
+        }
+        
+        if ((!strcmp(arg, "--sample-boost") || !strcmp(arg, "-sb")) && i + 1 < argc) {
+            sscanf(argv[++i], "%f", &opts->sample_boost);
+            continue;
+        }
+        
+        if ((!strcmp(arg, "--width") || !strcmp(arg, "-w")) && i + 1 < argc) {
+            sscanf(argv[++i], "%d", &opts->width);
+            continue;
+        }
+        
+        if ((!strcmp(arg, "--height") || !strcmp(arg, "-h")) && i + 1 < argc) {
+            sscanf(argv[++i], "%d", &opts->height);
+            continue;
+        }
+        
+        if ((!strcmp(arg, "--pw-source") || !strcmp(arg, "-s")) && i + 1 < argc) {
+            sscanf(argv[++i], "%d", &opts->pw_source);
+            continue;
+        }
+    }
+
+    return 1;
+}
+
 int main(int argc, char **argv) {
     float fft_buffer[10240];
+
+    opts_t opts = {
+        .monitor = 0,
+        .sample_boost = 1,
+        .width = 0,
+        .height = 0,
+        .pw_source = 0,
+    };
+
+    if (!cli_parse(argc, argv, &opts)) {
+        return 0;
+    }
+
     ctx_t ctx = {
-        .fft = fft_buffer
+        .fft = fft_buffer,
+        .opts = opts
     };
 
     pthread_t tid;
@@ -376,7 +458,7 @@ int main(int argc, char **argv) {
 
     pw_stream_connect(ctx.stream,
             PW_DIRECTION_INPUT,
-            129,
+            ctx.opts.pw_source,
             //PW_ID_ANY,
             PW_STREAM_FLAG_AUTOCONNECT |
             PW_STREAM_FLAG_MAP_BUFFERS |
