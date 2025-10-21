@@ -441,7 +441,7 @@ int main(int argc, char **argv) {
 
     ctx.stream = pw_stream_new_simple(
             pw_main_loop_get_loop(ctx.loop),
-            "idk-something",
+            "audio-visualizer",
             props,
             &stream_events,
             &ctx);
