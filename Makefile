@@ -5,7 +5,7 @@ TARGET=./visualizer
 .PHONY: default
 default: $(TARGET)
 
-$(TARGET): main.c fft.c spotify_dbus.c
+$(TARGET): main.c fft.c spotify_dbus.c pipewire_enumerate.c
 	$(CC) $(CFLAGS) main.c -o $(TARGET)
 
 clean:

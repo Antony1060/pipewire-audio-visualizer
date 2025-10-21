@@ -9,6 +9,7 @@
 
 #include "fft.c"
 #include "spotify_dbus.c"
+#include "pipewire_enumerate.c"
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define MAX(a, b) ((a) < (b) ? (b) : (a))
@@ -133,7 +134,7 @@ Color color_progression(float progress) {
 
 void *draw_thread_init(void *_ctx) {
     ctx_t *ctx = _ctx;
-    
+
     SetConfigFlags(FLAG_WINDOW_TRANSPARENT | FLAG_WINDOW_UNDECORATED);
 
     const int PADDING = 0;
@@ -147,7 +148,7 @@ void *draw_thread_init(void *_ctx) {
     const int S_WIDTH = ctx->opts.width == 0 ? GetMonitorWidth(ctx->opts.monitor) : ctx->opts.width;
     const int S_HEIGHT = ctx->opts.height == 0 ? GetMonitorHeight(ctx->opts.monitor) : ctx->opts.height;
     SetWindowMonitor(ctx->opts.monitor);
-    
+
     SetWindowSize(S_WIDTH, S_HEIGHT);
 
     const time_t SPOTIFY_FETCH_INTERVAL = 1;
@@ -168,7 +169,9 @@ void *draw_thread_init(void *_ctx) {
 
         time_t now = time(NULL);
         if (now - spotify_last_get >= SPOTIFY_FETCH_INTERVAL) {
-            get_spotify_data(&spotify_data);
+            if (get_spotify_data(&spotify_data) < 0) {
+                spotify_data = (spotify_data_t) {0};
+            }
             spotify_last_get = now;
         }
 
@@ -353,48 +356,44 @@ void print_help(char *argv0) {
     printf("    --sample-boost/-sb\n    \tfloat, sometimes samples are too quiet to display nicely, this boosts them by some factor\n");
     printf("    --width/-w\n    \tint, default is monitor width\n");
     printf("    --height/-h\n    \tint, default is monitor height\n");
-    printf("    --pw-source/-s\n    \tint, PipeWire node for source audio from, see --pw-source-list\n");
-    printf("    --pw-source-lists\n    \tlist all PipeWire nodes\n");
-}
-
-void print_pw_sources() {
-    printf("TODO\n");
+    printf("    --pw-source/-s\n    \tint, PipeWire node for source audio from, see --pw-list-nodes\n");
+    printf("    --pw-list-nodes\n    \tlist all PipeWire nodes\n");
 }
 
 int cli_parse(int argc, char **argv, opts_t *opts) {
     for (int i = 0; i < argc; i++) {
         char *arg = argv[i];
-        
+
         if (!strcmp(arg, "--help")) {
             print_help(argv[0]);
             return 0;
         }
-        
-        if (!strcmp(arg, "--pw-source-list")) {
-            print_pw_sources();
+
+        if (!strcmp(arg, "--pw-list-nodes")) {
+            print_pw_nodes(argc, argv);
             return 0;
         }
-        
+
         if ((!strcmp(arg, "--monitor") || !strcmp(arg, "-m")) && i + 1 < argc) {
             sscanf(argv[++i], "%d", &opts->monitor);
             continue;
         }
-        
+
         if ((!strcmp(arg, "--sample-boost") || !strcmp(arg, "-sb")) && i + 1 < argc) {
             sscanf(argv[++i], "%f", &opts->sample_boost);
             continue;
         }
-        
+
         if ((!strcmp(arg, "--width") || !strcmp(arg, "-w")) && i + 1 < argc) {
             sscanf(argv[++i], "%d", &opts->width);
             continue;
         }
-        
+
         if ((!strcmp(arg, "--height") || !strcmp(arg, "-h")) && i + 1 < argc) {
             sscanf(argv[++i], "%d", &opts->height);
             continue;
         }
-        
+
         if ((!strcmp(arg, "--pw-source") || !strcmp(arg, "-s")) && i + 1 < argc) {
             sscanf(argv[++i], "%d", &opts->pw_source);
             continue;
