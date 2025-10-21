@@ -235,16 +235,21 @@ void *draw_thread_init(void *_ctx) {
         for (int i = 0; i < freq_visible; i++) {
             Vector2 point = fft_coords[i];
 
-            float x_shift = i == freq_visible - 1 ? freq_draw_width + 0.1 : freq_draw_width;
             // weird rendering bug on first bar (I assume it's just floating point fuckery)
-            DrawRectangle(point.x - x_shift, point.y, freq_draw_width, S_HEIGHT - point.y, BLUE);
+            float x_shift = i == freq_visible - 1 ? freq_draw_width + 0.1 : freq_draw_width;
+
+            Vector2 pos = { point.x - x_shift, point.y };
+            Vector2 size = { freq_draw_width, S_HEIGHT - point.y };
+            DrawRectangleV(pos, size, BLUE);
         }
 
 #if MIRROR_FREQ
         for (int i = 0; i < freq_visible; i++) {
             Vector2 point = fft_coords[i];
 
-            DrawRectangle(S_WIDTH - point.x, point.y, freq_draw_width, S_HEIGHT - point.y, BLUE);
+            Vector2 pos = { S_WIDTH - point.x, point.y };
+            Vector2 size = { freq_draw_width, S_HEIGHT - point.y };
+            DrawRectangleV(pos, size, BLUE);
         }
 #endif
 
