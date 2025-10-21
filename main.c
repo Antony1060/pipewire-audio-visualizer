@@ -50,8 +50,10 @@ typedef struct ctx_s {
 
     opts_t opts;
 
+#ifdef LOG_TIMINGS
     struct timespec _last_render;
     struct timespec _last_audio_buffer;
+#endif // LOG_TIMINGS
 } ctx_t;
 
 void process_samples(ctx_t *ctx, float *samples, size_t n_samples) {
@@ -165,7 +167,7 @@ void *draw_thread_init(void *_ctx) {
         ClearBackground(BLANK);
 
         time_t now = time(NULL);
-        if (now - spotify_last_get >= SPOTIFY_FETCH_INTERVAL || spotify_data.artist == 0) {
+        if (now - spotify_last_get >= SPOTIFY_FETCH_INTERVAL) {
             get_spotify_data(&spotify_data);
             spotify_last_get = now;
         }
