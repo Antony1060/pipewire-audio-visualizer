@@ -62,7 +62,7 @@ static void __registry_event_global(void *data, uint32_t id, uint32_t permission
 }
 
 void print_pw_nodes(int argc, char **argv) {
-    printf("!! Note some of these might not be valid as a source\n");
+    fprintf(stderr, "!! Note some of these might not be valid as a source\n");
     pw_init(&argc, &argv);
 
     struct pw_main_loop *loop = pw_main_loop_new(NULL);
