@@ -80,7 +80,7 @@ void fft(complex_arr_t arr) {
     }
 }
 
-void fft_samples(float *samples, float *fft_out, size_t n_samples) {
+void fft_samples(float *samples, float *fft_out, float *fft_imag_out, size_t n_samples) {
     complex_t buf[n_samples];
 
     for (size_t i = 0; i < n_samples; i++)
@@ -90,6 +90,8 @@ void fft_samples(float *samples, float *fft_out, size_t n_samples) {
 
     fft(in);
 
-    for (size_t i = 0; i < in.size; i++)
+    for (size_t i = 0; i < in.size; i++) {
         fft_out[i] = in.items[i].real;
+        fft_imag_out[i] = in.items[i].imag;
+    }
 }
