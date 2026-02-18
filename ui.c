@@ -12,7 +12,7 @@
 // visual effect
 #define MIRROR_FREQ 1
 
-void avg_reduce_stream(float *src, size_t src_size, float *dst, size_t dst_size, int max) {
+void avg_reduce_stream(float *src, size_t src_size, float *dst, size_t dst_size, int max, float scale) {
     // reduce src chunks to dst chunks
     size_t chunk = src_size / dst_size;
 
@@ -21,7 +21,7 @@ void avg_reduce_stream(float *src, size_t src_size, float *dst, size_t dst_size,
         for (size_t j = i * chunk; j < (i + 1) * chunk; j++)
             sum += src[j];
 
-        dst[i] = (sum / chunk) * 0.2;
+        dst[i] = (sum / chunk) * scale;
     }
 
     // scale to max
@@ -85,8 +85,8 @@ void *draw_thread_init(void *_ctx) {
     const int PADDING = 0;
     const int SCALE = 40;
 
-    //const int REFRESH_RATE = GetMonitorRefreshRate(ctx->opts.monitor);
-    SetTargetFPS(60);
+    const int REFRESH_RATE = GetMonitorRefreshRate(ctx->opts.monitor);
+    SetTargetFPS(REFRESH_RATE);
 
     InitWindow(0, 0, "audio visualizer");
 
@@ -157,7 +157,7 @@ void *draw_thread_init(void *_ctx) {
 
         int freq_visible = MIN(256, needed_fft_chunks);
         float fft_visible[freq_visible];
-        avg_reduce_stream(fft, needed_fft_chunks, fft_visible, freq_visible, 400);
+        avg_reduce_stream(fft, needed_fft_chunks, fft_visible, freq_visible, 400, 0.4);
 
         fill_vector_from_samples(fft_visible, freq_visible, fft_coords, S_HEIGHT - 1, 0, 1, (float) S_WIDTH / freq_visible);
 

@@ -16,30 +16,37 @@
 
 // very crude normalization
 void normalize_samples(float *samples, size_t n_samples) {
-    const double RMS_TARGET = 1.6;
-    const int RMS_BUF_SIZE = 64 * 1024;
-    
-    static double rms_buffer[64 * 1024];
+    const double RMS_TARGET = 1.2;
+    const int TOTAL_BUF_SIZE = 1024;
+
+    static struct { double total; size_t cnt; } total_buffer[1024];
     static size_t cursor = 0;
 
+    total_buffer[cursor].total = 0;
+    total_buffer[cursor].cnt = n_samples;
     for (size_t i = 0; i < n_samples; i++) {
-        rms_buffer[cursor] = samples[i];
-        cursor = (cursor + 1) & (RMS_BUF_SIZE - 1);
+        total_buffer[cursor].total += samples[i] * samples[i];
     }
 
+    cursor = (cursor + 1) & (TOTAL_BUF_SIZE - 1);
+
     double total = 0;
-    for (size_t i = 0; i < RMS_BUF_SIZE; i++) {
-        total += rms_buffer[i] * rms_buffer[i];
+    size_t cnt = 0;
+
+    for (size_t i = 0; i < TOTAL_BUF_SIZE; i++) {
+        total += total_buffer[i].total;
+        cnt += total_buffer[i].cnt;
     }
-    
-    double avg = sqrt(total / RMS_BUF_SIZE);
+    //printf("total: %f | cnt: %zu\n", total, cnt);
+
+    double avg = sqrt(total / cnt);
     double gain = RMS_TARGET / avg;
 
     for (size_t i = 0; i < n_samples; i++) {
         samples[i] = samples[i] * gain;
     }
 
-    //printf("rms: %f | s_rms: %f | gain: %f\n", avg, sqrt(t2 / n_samples), gain);
+    //printf("rms: %f | cursor: %zu | gain: %f\n", avg, cursor, gain);
 }
 
 void process_samples(ctx_t *ctx, float *samples, size_t n_samples) {
@@ -47,7 +54,7 @@ void process_samples(ctx_t *ctx, float *samples, size_t n_samples) {
         samples[i] *= ctx->opts.sample_boost;
     }
 
-    //normalize_samples(samples, n_samples);
+    normalize_samples(samples, n_samples);
 }
 
 void process_fft(float *magnitudes, float *fft_real, float *fft_imag, size_t n_samples) {
@@ -232,6 +239,7 @@ int main(int argc, char **argv) {
             PW_KEY_MEDIA_TYPE, "Audio",
             PW_KEY_MEDIA_CATEGORY, "Capture",
             PW_KEY_MEDIA_ROLE, "Music",
+            PW_KEY_NODE_LATENCY, "2048/48000",
             NULL);
 
     ctx.stream = pw_stream_new_simple(
