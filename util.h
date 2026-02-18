@@ -20,7 +20,6 @@ static float timespec_diff_ns(struct timespec *start, struct timespec *end) {
 #endif
 
 typedef struct opts_s {
-
     int monitor;
     float sample_boost;
     int width;
@@ -35,8 +34,7 @@ typedef struct {
     struct spa_audio_info format;
 
     float *samples;
-    float *fft_real;
-    float *fft_imag;
+    float *fft_magnitudes;
     size_t n_samples;
     size_t n_channels;
 

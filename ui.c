@@ -12,15 +12,6 @@
 // visual effect
 #define MIRROR_FREQ 1
 
-// TODO: move to pipewire thread
-void process_fft(float *magnitudes, float *fft_real, float *fft_imag, size_t n_samples) {
-    float total = 0;
-    for (size_t i = 0; i < n_samples; i++) {
-        magnitudes[i] = sqrt(fft_real[i] * fft_real[i] + fft_imag[i] * fft_imag[i]);
-        total += magnitudes[i];
-    }
-}
-
 void avg_reduce_stream(float *src, size_t src_size, float *dst, size_t dst_size, int max) {
     // reduce src chunks to dst chunks
     size_t chunk = src_size / dst_size;
@@ -94,8 +85,8 @@ void *draw_thread_init(void *_ctx) {
     const int PADDING = 0;
     const int SCALE = 40;
 
-    const int REFRESH_RATE = GetMonitorRefreshRate(ctx->opts.monitor);
-    SetTargetFPS(REFRESH_RATE);
+    //const int REFRESH_RATE = GetMonitorRefreshRate(ctx->opts.monitor);
+    SetTargetFPS(60);
 
     InitWindow(0, 0, "audio visualizer");
 
@@ -152,10 +143,7 @@ void *draw_thread_init(void *_ctx) {
 
         int needed_fft_chunks = (int) (20000.0 / ((double) ctx->format.info.raw.rate / n_samples));
 
-        float fft[n_samples];
-        float *fft_real = ctx->fft_real;
-        float *fft_imag = ctx->fft_imag;
-        process_fft(fft, fft_real, fft_imag, n_samples);
+        float *fft = ctx->fft_magnitudes;
 
         Vector2 fft_coords[needed_fft_chunks];
         Vector2 coords[n_samples];

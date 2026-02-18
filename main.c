@@ -12,19 +12,49 @@
 #include "pipewire_enumerate.c"
 #include "ui.c"
 
+#define FFT_BUF_SIZE 10240
+
 // very crude normalization
 void normalize_samples(float *samples, size_t n_samples) {
-    float total = 0;
+    const double RMS_TARGET = 1.6;
+    const int RMS_BUF_SIZE = 64 * 1024;
+    
+    static double rms_buffer[64 * 1024];
+    static size_t cursor = 0;
+
     for (size_t i = 0; i < n_samples; i++) {
-        total += samples[i] * samples[i];
+        rms_buffer[cursor] = samples[i];
+        cursor = (cursor + 1) & (RMS_BUF_SIZE - 1);
     }
 
-    //printf("rms: %f\n", sqrt(total / n_samples));
+    double total = 0;
+    for (size_t i = 0; i < RMS_BUF_SIZE; i++) {
+        total += rms_buffer[i] * rms_buffer[i];
+    }
+    
+    double avg = sqrt(total / RMS_BUF_SIZE);
+    double gain = RMS_TARGET / avg;
+
+    for (size_t i = 0; i < n_samples; i++) {
+        samples[i] = samples[i] * gain;
+    }
+
+    //printf("rms: %f | s_rms: %f | gain: %f\n", avg, sqrt(t2 / n_samples), gain);
 }
 
 void process_samples(ctx_t *ctx, float *samples, size_t n_samples) {
     for (size_t i = 0; i < n_samples; i++) {
-        samples[i] *= 8 + ctx->opts.sample_boost;
+        samples[i] *= ctx->opts.sample_boost;
+    }
+
+    //normalize_samples(samples, n_samples);
+}
+
+void process_fft(float *magnitudes, float *fft_real, float *fft_imag, size_t n_samples) {
+    float total = 0;
+    for (size_t i = 0; i < n_samples; i++) {
+        magnitudes[i] = sqrt(fft_real[i] * fft_real[i] + fft_imag[i] * fft_imag[i]);
+        total += magnitudes[i];
     }
 }
 
@@ -82,9 +112,12 @@ void on_process(void *_ctx) {
     ctx->samples = samples;
     ctx->n_samples = n_samples;
     ctx->n_channels = n_channels;
-    normalize_samples(samples, n_samples);
     process_samples(ctx, samples, n_samples);
-    fft_samples(samples, ctx->fft_real, ctx->fft_imag, n_samples);
+
+    static float fft_real[FFT_BUF_SIZE];
+    static float fft_imag[FFT_BUF_SIZE];
+    fft_samples(samples, fft_real, fft_imag, n_samples);
+    process_fft(ctx->fft_magnitudes, fft_real, fft_imag, n_samples);
 
     pw_stream_queue_buffer(ctx->stream, b);
 
@@ -166,8 +199,7 @@ int cli_parse(int argc, char **argv, opts_t *opts) {
 }
 
 int main(int argc, char **argv) {
-    float fft_real_buffer[10240];
-    float fft_imag_buffer[10240];
+    float fft_magnitudes_buffer[FFT_BUF_SIZE];
 
     opts_t opts = {
         .monitor = 0,
@@ -182,8 +214,7 @@ int main(int argc, char **argv) {
     }
 
     ctx_t ctx = {
-        .fft_real = fft_real_buffer,
-        .fft_imag = fft_imag_buffer,
+        .fft_magnitudes = fft_magnitudes_buffer,
         .opts = opts
     };
 
