@@ -73,11 +73,11 @@ void render_samples(float *samples, size_t n_samples, float centerline, Color (*
         Vector2 end = coords[i + 1];
 
         Color color = color_progression_fn(fabsf(samples[i + 1]) / sample_max);
-        DrawLineBezier(start, end, 2.0f, color);
+        DrawLineEx(start, end, 2.0f, color);
 
         if (i + 2 < n_samples) {
             Vector2 start2 = coords[i + 2];
-            DrawLineBezier(end, start2, 2.0f, color);
+            DrawLineEx(end, start2, 2.0f, color);
         }
     }
 }
@@ -189,13 +189,20 @@ void *draw_thread_init(void *_ctx) {
 
     Font font;
     if (ctx->opts.font != NULL) {
-        // load Latin Extended-A
-        const size_t count =  0x017F - 0x0020 + 1;
-        int codepoints[count];
-        for (size_t i = 0; i < count; i++)
+        // Latin Extended-A
+        const size_t l_ex_a_count =  0x017F - 0x0020 + 1;
+        // Cyrillic
+        const size_t c_count = 0x04FF - 0x0400 + 1;
+
+        int codepoints[l_ex_a_count + c_count];
+
+        for (size_t i = 0; i < l_ex_a_count; i++)
             codepoints[i] = 0x0020 + i;
 
-        font = LoadFontEx(ctx->opts.font, 128, codepoints, count);
+        for (size_t i = 0; i < c_count; i++)
+            codepoints[i + l_ex_a_count] = 0x0400 + i;
+
+        font = LoadFontEx(ctx->opts.font, 128, codepoints, l_ex_a_count + c_count);
     }
 
     while(!WindowShouldClose()) {
@@ -236,7 +243,6 @@ void *draw_thread_init(void *_ctx) {
             render_two_channels(ctx);
         else
             render_mono_channel(ctx);
-
 
         struct timespec render_end;
         clock_gettime(CLOCK_REALTIME, &render_end);
