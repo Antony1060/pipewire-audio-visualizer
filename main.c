@@ -243,6 +243,11 @@ int cli_parse(int argc, char **argv, opts_t *opts) {
             continue;
         }
 
+        if (!strcmp(arg, "--font") && i + 1 < argc) {
+            opts->font = argv[++i];
+            continue;
+        }
+
         if (!strcmp(arg, "--log-timings")) {
             opts->log_timings = 1;
             continue;
@@ -281,6 +286,7 @@ int main(int argc, char **argv) {
         .width = 0,
         .height = 0,
         .pw_source = 0,
+        .font = NULL,
         .log_timings = 0,
         .flip_colors = 0,
         .split_waves = 0,

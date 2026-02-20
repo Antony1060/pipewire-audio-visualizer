@@ -187,6 +187,17 @@ void *draw_thread_init(void *_ctx) {
     spotify_data_t spotify_data = {0};
     time_t spotify_last_get = 0;
 
+    Font font;
+    if (ctx->opts.font != NULL) {
+        // load Latin Extended-A
+        const size_t count =  0x017F - 0x0020 + 1;
+        int codepoints[count];
+        for (size_t i = 0; i < count; i++)
+            codepoints[i] = 0x0020 + i;
+
+        font = LoadFontEx(ctx->opts.font, 128, codepoints, count);
+    }
+
     while(!WindowShouldClose()) {
         struct timespec render_start;
         clock_gettime(CLOCK_REALTIME, &render_start);
@@ -209,8 +220,13 @@ void *draw_thread_init(void *_ctx) {
         }
 
         if (spotify_data.artist != 0) {
-            DrawText(spotify_data.artist, 100, 100, 32, WHITE);
-            DrawText(spotify_data.title, 100, 140, 64, WHITE);
+            if (ctx->opts.font != NULL && font.texture.id != 0) {
+                DrawTextEx(font, spotify_data.artist, (Vector2) { 100, 100 }, 36, 0, WHITE);
+                DrawTextEx(font, spotify_data.title, (Vector2) { 100, 140 }, 72, 0, WHITE);
+            } else {
+                DrawText(spotify_data.artist, 100, 100, 32, WHITE);
+                DrawText(spotify_data.title, 100, 140, 64, WHITE);
+            }
         }
 
         if (ctx->details == NULL)

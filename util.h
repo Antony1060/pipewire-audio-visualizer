@@ -24,6 +24,8 @@ typedef struct opts_s {
     int height;
     int pw_source;
 
+    char *font;
+
     bool log_timings;
     bool flip_colors;
     bool split_waves;
