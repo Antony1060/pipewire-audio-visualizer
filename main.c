@@ -12,8 +12,6 @@
 #include "pipewire_enumerate.c"
 #include "ui.c"
 
-#define FFT_BUF_SIZE 10240
-
 // very crude normalization
 void normalize_samples(float *samples, size_t n_samples) {
     const double RMS_TARGET = 1.2;
@@ -37,7 +35,6 @@ void normalize_samples(float *samples, size_t n_samples) {
         total += total_buffer[i].total;
         cnt += total_buffer[i].cnt;
     }
-    //printf("total: %f | cnt: %zu\n", total, cnt);
 
     double avg = sqrt(total / cnt);
     double gain = RMS_TARGET / avg;
@@ -45,23 +42,38 @@ void normalize_samples(float *samples, size_t n_samples) {
     for (size_t i = 0; i < n_samples; i++) {
         samples[i] = samples[i] * gain;
     }
-
-    //printf("rms: %f | cursor: %zu | gain: %f\n", avg, cursor, gain);
 }
 
-void process_samples(ctx_t *ctx, float *samples, size_t n_samples) {
-    for (size_t i = 0; i < n_samples; i++) {
-        samples[i] *= ctx->opts.sample_boost;
+void process_samples(ctx_t *ctx) {
+    for (size_t i = 0; i < ctx->n_channels; i++) {
+        for (size_t j = 0; j < ctx->n_samples; j++) {
+            ctx->details[i].samples[j] *= ctx->opts.sample_boost;
+        }
+
+        normalize_samples(ctx->details[i].samples, ctx->n_samples);
     }
-
-    normalize_samples(samples, n_samples);
 }
 
-void process_fft(float *magnitudes, float *fft_real, float *fft_imag, size_t n_samples) {
-    float total = 0;
-    for (size_t i = 0; i < n_samples; i++) {
-        magnitudes[i] = sqrt(fft_real[i] * fft_real[i] + fft_imag[i] * fft_imag[i]);
-        total += magnitudes[i];
+void split_sample_channels(float *samples, channel_details_t *dst, size_t n_samples, size_t n_channels) {
+    size_t dst_size = n_samples / n_channels;
+
+    for (size_t i = 0; i < dst_size; i++) {
+        for (size_t j = 0; j < n_channels; j++) {
+            dst[j].samples[i] = samples[i * n_channels + j];
+        }
+    }
+}
+
+void process_fft(ctx_t *ctx) {
+    for (size_t i = 0; i < ctx->n_channels; i++) {
+        float real[ctx->n_samples];
+        float imag[ctx->n_samples];
+
+        fft_samples(ctx->details[i].samples, real, imag, ctx->n_samples);
+
+        for (size_t j = 0; j < ctx->n_samples; j++) {
+            ctx->details[i].fft[j] = sqrt(real[j] * real[j] + imag[j] * imag[j]);
+        }
     }
 }
 
@@ -92,6 +104,28 @@ void on_param_changed(void *_ctx, uint32_t id, const struct spa_pod *param) {
     printf("capturing rate: %d | channels: %d\n", ctx->format.info.raw.rate, ctx->format.info.raw.channels);
 }
 
+// TODO: arenas
+void realloc_buffers(ctx_t *ctx, uint32_t n_samples, uint32_t n_channels) {
+    if (ctx->details != NULL) {
+        for (size_t i = 0; i < ctx->n_channels; i++) {
+            assert(ctx->details[i].samples != NULL);
+            assert(ctx->details[i].fft != NULL);
+
+            free(ctx->details[i].samples);
+            free(ctx->details[i].fft);
+        }
+
+        free(ctx->details);
+    }
+
+    ctx->details = malloc(n_channels * sizeof(*ctx->details));
+
+    for (size_t i = 0; i < n_channels; i++) {
+        ctx->details[i].samples = calloc(n_samples, sizeof(float));
+        ctx->details[i].fft = calloc(n_samples, sizeof(float));
+    }
+}
+
 void on_process(void *_ctx) {
     ctx_t *ctx = _ctx;
 
@@ -112,29 +146,32 @@ void on_process(void *_ctx) {
     uint32_t n_samples = buf->datas[0].chunk->size / sizeof(float);
     uint32_t n_channels = ctx->format.info.raw.channels;
 
-    if (ctx->n_samples != n_samples || ctx->n_channels != n_channels) {
-        printf("samples: %d | channles: %d | samples_per_channel: %d\n", n_samples, n_channels, n_samples / n_channels);
+    if (ctx->n_total_samples != n_samples || ctx->n_channels != n_channels) {
+        realloc_buffers(ctx, n_samples, n_channels);
+        printf("samples: %d | channels: %d | samples_per_channel: %d\n", n_samples, n_channels, n_samples / n_channels);
     }
 
-    ctx->samples = samples;
-    ctx->n_samples = n_samples;
+    ctx->n_total_samples = n_samples;
+    ctx->n_samples = n_samples / n_channels;
     ctx->n_channels = n_channels;
-    process_samples(ctx, samples, n_samples);
+    ctx->relevant_fft_bins = (size_t) (20000.0 / ((double) ctx->format.info.raw.rate / ctx->n_samples));
 
-    static float fft_real[FFT_BUF_SIZE];
-    static float fft_imag[FFT_BUF_SIZE];
-    fft_samples(samples, fft_real, fft_imag, n_samples);
-    process_fft(ctx->fft_magnitudes, fft_real, fft_imag, n_samples);
+    split_sample_channels(samples, ctx->details, ctx->n_total_samples, ctx->n_channels);
+
+    process_samples(ctx);
+    process_fft(ctx);
 
     pw_stream_queue_buffer(ctx->stream, b);
 
     struct timespec audio_end;
     clock_gettime(CLOCK_REALTIME, &audio_end);
-#if LOG_TIMINGS
-    float diff_ns = timespec_diff_ns(&audio_start, &audio_end);
-    float last_diff_ms = timespec_diff_ns(&ctx->_last_audio_buffer, &audio_start) / 1000000;
-    printf("audio sample cycle took %.2fns (%d/sec) (last was %.2fms ago)\n", diff_ns, (int) (NANOS_PER_SEC / diff_ns), last_diff_ms);
-#endif
+
+    if (ctx->opts.log_timings) {
+        float diff_ns = timespec_diff_ns(&audio_start, &audio_end);
+        float last_diff_ms = timespec_diff_ns(&ctx->_last_audio_buffer, &audio_start) / 1000000;
+        fprintf(stderr, "audio sample cycle took %.2fns (%d/sec) (last was %.2fms ago)\n", diff_ns, (int) (NANOS_PER_SEC / diff_ns), last_diff_ms);
+    }
+
     ctx->_last_audio_buffer = audio_end;
 }
 
@@ -158,6 +195,9 @@ void print_help(char *argv0) {
     printf("    --sample-boost/-sb\n    \tfloat, sometimes samples are too quiet to display nicely, this boosts them by some factor\n");
     printf("    --width/-w\n    \tint, default is monitor width\n");
     printf("    --height/-h\n    \tint, default is monitor height\n");
+    printf("    --log-timings\n    \ttoggle, spam stderr with render and processing timings\n");
+    printf("    --mirror\n    \ttoggle, mirror the frequency display vertically\n");
+    printf("    --two-channels\n    \ttoggle, display 2 channels, will exit if there are not exactly 2 channels present, incompatible with --mirror\n");
     printf("    --pw-source/-s\n    \tint, PipeWire node for source audio from, see --pw-list-nodes\n");
     printf("    --pw-list-nodes\n    \tlist all PipeWire nodes\n");
 }
@@ -200,20 +240,38 @@ int cli_parse(int argc, char **argv, opts_t *opts) {
             sscanf(argv[++i], "%d", &opts->pw_source);
             continue;
         }
+
+        if (!strcmp(arg, "--log-timings")) {
+            opts->log_timings = 1;
+            continue;
+        }
+
+        if (!strcmp(arg, "--mirror")) {
+            opts->mirror = 1;
+            opts->two_channels = 0;
+            continue;
+        }
+
+        if (!strcmp(arg, "--two-channels")) {
+            opts->mirror = 0;
+            opts->two_channels = 1;
+            continue;
+        }
     }
 
     return 1;
 }
 
 int main(int argc, char **argv) {
-    float fft_magnitudes_buffer[FFT_BUF_SIZE];
-
     opts_t opts = {
         .monitor = 0,
         .sample_boost = 1,
         .width = 0,
         .height = 0,
         .pw_source = 0,
+        .log_timings = 0,
+        .mirror = 0,
+        .two_channels = 0,
     };
 
     if (!cli_parse(argc, argv, &opts)) {
@@ -221,7 +279,6 @@ int main(int argc, char **argv) {
     }
 
     ctx_t ctx = {
-        .fft_magnitudes = fft_magnitudes_buffer,
         .opts = opts
     };
 
@@ -239,7 +296,6 @@ int main(int argc, char **argv) {
             PW_KEY_MEDIA_TYPE, "Audio",
             PW_KEY_MEDIA_CATEGORY, "Capture",
             PW_KEY_MEDIA_ROLE, "Music",
-            PW_KEY_NODE_LATENCY, "2048/48000",
             NULL);
 
     ctx.stream = pw_stream_new_simple(
@@ -263,7 +319,6 @@ int main(int argc, char **argv) {
     pw_stream_connect(ctx.stream,
             PW_DIRECTION_INPUT,
             ctx.opts.pw_source,
-            //PW_ID_ANY,
             PW_STREAM_FLAG_AUTOCONNECT |
             PW_STREAM_FLAG_MAP_BUFFERS |
             PW_STREAM_FLAG_RT_PROCESS,
