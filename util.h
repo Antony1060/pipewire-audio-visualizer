@@ -25,6 +25,8 @@ typedef struct opts_s {
     int pw_source;
 
     bool log_timings;
+    bool flip_colors;
+    bool split_waves;
 
     bool mirror;
     bool two_channels;
@@ -57,22 +59,15 @@ Color color_progression(float progress) {
     progress = MAX(MIN(progress, 1), 0);
     assert(progress <= 1 && progress >= 0);
 
-    Color color = CLITERAL(Color) { 0, 0, 0, 255 };
+    Color color = (Color) { 0, 0, 0, 255 };
 
-
-    if (progress <= 0.25) {
-        //printf("b25: %f\n", progress);
-        color.g = 255;
-        color.b = (progress / 0.25) * 255;
-    } else if (progress <= 0.50) {
-        color.b = 255;
-        color.g = 255 - (((progress - 0.25) / 0.25) * 255);
-    } else if (progress <= 0.75) {
-        color.b = 255;
-        color.r = ((progress - 0.5) / 0.25) * 255;
-    } else if (progress <= 1) {
+    // red to magenta to blue
+    if (progress <= 0.50) {
         color.r = 255;
-        color.b = 255 - (((progress - 0.75) / 0.25) * 255);
+        color.b = (progress / 0.50) * 255;
+    } else if (progress <= 1) {
+        color.b = 255;
+        color.r = 255 - (((progress - 0.50) / 0.50) * 255);
     }
 
     return color;
@@ -84,18 +79,26 @@ Color color_progression_alt(float progress) {
 
     Color color = (Color) { 0, 0, 0, 255 };
 
-    if (progress <= 0.25) {
+    // yellowish-green to cyanish-green to cyanish-blue
+    if (progress <= 0.50) {
         color.g = 255;
-        color.b = (progress / 0.25) * 255;
-    } else if (progress <= 0.50) {
-        color.b = 255;
-        color.g = 255 - (((progress - 0.25) / 0.25) * 255);
-    } else if (progress <= 0.75) {
-        color.b = 255;
-        color.r = ((progress - 0.5) / 0.25) * 255;
+
+        float mid_progress = (progress / 0.50);
+        if (mid_progress <= 0.50)
+            color.r = 128 - ((mid_progress / 0.50) * 128);
+        else {
+            color.r = 0;
+            color.b = ((mid_progress - 0.50) / 0.50) * 128;
+        }
     } else if (progress <= 1) {
-        color.r = 255;
-        color.b = 255 - (((progress - 0.75) / 0.25) * 255);
+        float mid_progress = ((progress - 0.50) / 0.50);
+        if (mid_progress <= 0.50) {
+            color.g = 255;
+            color.b = 128 + ((mid_progress / 0.50) * 127);
+        } else {
+            color.b = 255;
+            color.g = 255 - ((mid_progress - 0.50) / 0.50) * 128;
+        }
     }
 
     return color;

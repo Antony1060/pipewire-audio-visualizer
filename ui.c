@@ -9,10 +9,13 @@
 #include "util.h"
 #include "spotify_dbus.c"
 
+#define COLOR_PROGRESSION(ctx) (((ctx)->opts.flip_colors) ? color_progression_alt : color_progression)
+#define COLOR_PROGRESSION_ALT(ctx) (((ctx)->opts.flip_colors) ? color_progression : color_progression_alt)
+
 int S_WIDTH = -1;
 int S_HEIGHT = -1;
 
-void avg_reduce_stream(float *src, size_t src_size, float *dst, size_t dst_size, int max, float scale) {
+void avg_reduce_stream(float *src, size_t src_size, float *dst, size_t dst_size, float scale) {
     // reduce src chunks to dst chunks
     size_t chunk = src_size / dst_size;
 
@@ -23,18 +26,6 @@ void avg_reduce_stream(float *src, size_t src_size, float *dst, size_t dst_size,
 
         dst[i] = (sum / chunk) * scale;
     }
-
-    /*
-    // scale to max
-    float sample_max = 0;
-    for (size_t i = 0; i < dst_size; i++)
-        sample_max = MAX(sample_max, dst[i]);
-
-    max = MIN(sample_max, max);
-
-    for (size_t i = 0; i < dst_size; i++)
-        dst[i] = (dst[i] / sample_max) * max;
-        */
 }
 
 void merge_channels(channel_details_t *all_details, channel_details_t *dst, size_t n_samples, size_t n_channels) {
@@ -59,7 +50,7 @@ void fill_vector_from_samples(float *samples, size_t n_samples, Vector2 *coords,
     }
 }
 
-void render_samples(float *samples, size_t n_samples, Color (*color_progression_fn)(float)) {
+void render_samples(float *samples, size_t n_samples, float centerline, Color (*color_progression_fn)(float)) {
     const int PADDING = 0;
     const int SCALE = 40;
 
@@ -71,7 +62,7 @@ void render_samples(float *samples, size_t n_samples, Color (*color_progression_
 
     int draw_width = S_WIDTH - PADDING * 2;
 
-    fill_vector_from_samples(samples, n_samples, coords, S_HEIGHT / 2, PADDING, SCALE, (float) draw_width / n_samples);
+    fill_vector_from_samples(samples, n_samples, coords, centerline, PADDING, SCALE, (float) draw_width / n_samples);
 
     // peg first and last point to the edge, otherwise there will be a small gap at either side
     coords[0].x = PADDING;
@@ -81,7 +72,7 @@ void render_samples(float *samples, size_t n_samples, Color (*color_progression_
         Vector2 start = coords[i];
         Vector2 end = coords[i + 1];
 
-        Color color = color_progression_fn(fabsf(1 - (fabsf(samples[i + 1]) / sample_max / 2)));
+        Color color = color_progression_fn(fabsf(samples[i + 1]) / sample_max);
         DrawLineBezier(start, end, 2.0f, color);
 
         if (i + 2 < n_samples) {
@@ -95,7 +86,7 @@ void prepare_fft_render(ctx_t *ctx, Vector2 *dst, float *magnitudes) {
     size_t freq_visible = MIN(256, ctx->relevant_fft_bins);
     float fft_visible[freq_visible];
 
-    avg_reduce_stream(magnitudes, ctx->relevant_fft_bins, fft_visible, freq_visible, 400, 0.4);
+    avg_reduce_stream(magnitudes, ctx->relevant_fft_bins, fft_visible, freq_visible, 0.4);
 
     fill_vector_from_samples(fft_visible, freq_visible, dst, S_HEIGHT - 1, 0, 1, (float) S_WIDTH / freq_visible);
 }
@@ -107,7 +98,7 @@ void render_mono_channel(ctx_t *ctx) {
 
     merge_channels(ctx->details, &_curr, ctx->n_samples, ctx->n_channels);
 
-    render_samples(samples, ctx->n_samples, color_progression);
+    render_samples(samples, ctx->n_samples, S_HEIGHT / 2, COLOR_PROGRESSION(ctx));
 
     // rendering fft
     Vector2 fft_coords[ctx->relevant_fft_bins];
@@ -142,8 +133,9 @@ void render_mono_channel(ctx_t *ctx) {
 void render_two_channels(ctx_t *ctx) {
     assert(ctx->n_channels == 2);
 
-    render_samples(ctx->details[0].samples, ctx->n_samples, color_progression);
-    render_samples(ctx->details[1].samples, ctx->n_samples, color_progression_alt);
+    size_t centerline_offset = ctx->opts.split_waves ? 200 : 0;
+    render_samples(ctx->details[0].samples, ctx->n_samples, S_HEIGHT / 2 - centerline_offset, COLOR_PROGRESSION(ctx));
+    render_samples(ctx->details[1].samples, ctx->n_samples, S_HEIGHT / 2 + centerline_offset, COLOR_PROGRESSION_ALT(ctx));
 
     // rendering fft
     Vector2 fft_coords_r[ctx->relevant_fft_bins];
@@ -212,6 +204,7 @@ void *draw_thread_init(void *_ctx) {
             if (get_spotify_data(&spotify_data) < 0) {
                 spotify_data = (spotify_data_t) {0};
             }
+
             spotify_last_get = now;
         }
 

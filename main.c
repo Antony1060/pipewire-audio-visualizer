@@ -196,6 +196,8 @@ void print_help(char *argv0) {
     printf("    --width/-w\n    \tint, default is monitor width\n");
     printf("    --height/-h\n    \tint, default is monitor height\n");
     printf("    --log-timings\n    \ttoggle, spam stderr with render and processing timings\n");
+    printf("    --flip-colors\n    \ttoggle, flips colors\n");
+    printf("    --split-waves\n    \ttoggle, in --two-channels mode, split the 2 channels visually\n");
     printf("    --mirror\n    \ttoggle, mirror the frequency display vertically\n");
     printf("    --two-channels\n    \ttoggle, display 2 channels, will exit if there are not exactly 2 channels present, incompatible with --mirror\n");
     printf("    --pw-source/-s\n    \tint, PipeWire node for source audio from, see --pw-list-nodes\n");
@@ -246,6 +248,16 @@ int cli_parse(int argc, char **argv, opts_t *opts) {
             continue;
         }
 
+        if (!strcmp(arg, "--flip-colors")) {
+            opts->flip_colors = 1;
+            continue;
+        }
+
+        if (!strcmp(arg, "--split-waves")) {
+            opts->split_waves = 1;
+            continue;
+        }
+
         if (!strcmp(arg, "--mirror")) {
             opts->mirror = 1;
             opts->two_channels = 0;
@@ -270,6 +282,8 @@ int main(int argc, char **argv) {
         .height = 0,
         .pw_source = 0,
         .log_timings = 0,
+        .flip_colors = 0,
+        .split_waves = 0,
         .mirror = 0,
         .two_channels = 0,
     };
