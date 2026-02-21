@@ -205,7 +205,11 @@ void *draw_thread_init(void *_ctx) {
         font = LoadFontEx(ctx->opts.font, 128, codepoints, l_ex_a_count + c_count);
     }
 
-    while(!WindowShouldClose()) {
+    bool quit = false;
+    while(!WindowShouldClose() && !quit) {
+        if (IsKeyPressed(KEY_Q))
+            quit = true;
+
         struct timespec render_start;
         clock_gettime(CLOCK_REALTIME, &render_start);
 
