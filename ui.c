@@ -167,6 +167,26 @@ void render_two_channels(ctx_t *ctx) {
     }
 }
 
+void load_font(ctx_t *ctx, Font *font) {
+    if (ctx->opts.font == NULL)
+        return;
+
+    // Latin Extended-A
+    const size_t l_ex_a_count =  0x017F - 0x0020 + 1;
+    // Cyrillic
+    const size_t c_count = 0x04FF - 0x0400 + 1;
+
+    int codepoints[l_ex_a_count + c_count];
+
+    for (size_t i = 0; i < l_ex_a_count; i++)
+        codepoints[i] = 0x0020 + i;
+
+    for (size_t i = 0; i < c_count; i++)
+        codepoints[i + l_ex_a_count] = 0x0400 + i;
+
+    *font = LoadFontEx(ctx->opts.font, 128, codepoints, l_ex_a_count + c_count);
+}
+
 void *draw_thread_init(void *_ctx) {
     ctx_t *ctx = _ctx;
 
@@ -187,23 +207,8 @@ void *draw_thread_init(void *_ctx) {
     spotify_data_t spotify_data = {0};
     time_t spotify_last_get = 0;
 
-    Font font;
-    if (ctx->opts.font != NULL) {
-        // Latin Extended-A
-        const size_t l_ex_a_count =  0x017F - 0x0020 + 1;
-        // Cyrillic
-        const size_t c_count = 0x04FF - 0x0400 + 1;
-
-        int codepoints[l_ex_a_count + c_count];
-
-        for (size_t i = 0; i < l_ex_a_count; i++)
-            codepoints[i] = 0x0020 + i;
-
-        for (size_t i = 0; i < c_count; i++)
-            codepoints[i + l_ex_a_count] = 0x0400 + i;
-
-        font = LoadFontEx(ctx->opts.font, 128, codepoints, l_ex_a_count + c_count);
-    }
+    Font font = {0};
+    load_font(ctx, &font);
 
     bool quit = false;
     while(!WindowShouldClose() && !quit) {
