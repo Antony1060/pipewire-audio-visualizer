@@ -192,14 +192,16 @@ void *draw_thread_init(void *_ctx) {
 
     SetConfigFlags(FLAG_WINDOW_TRANSPARENT | FLAG_WINDOW_UNDECORATED);
 
-    const int REFRESH_RATE = GetMonitorRefreshRate(ctx->opts.monitor);
-    SetTargetFPS(REFRESH_RATE);
-
     InitWindow(0, 0, "audio visualizer");
 
     S_WIDTH = ctx->opts.width == 0 ? GetMonitorWidth(ctx->opts.monitor) : ctx->opts.width;
     S_HEIGHT = ctx->opts.height == 0 ? GetMonitorHeight(ctx->opts.monitor) : ctx->opts.height;
     SetWindowMonitor(ctx->opts.monitor);
+
+    if (!ctx->opts.unlimited_fps) {
+        const int REFRESH_RATE = GetMonitorRefreshRate(ctx->opts.monitor);
+        SetTargetFPS(REFRESH_RATE);
+    }
 
     SetWindowSize(S_WIDTH, S_HEIGHT);
 

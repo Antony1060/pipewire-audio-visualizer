@@ -195,6 +195,7 @@ void print_help(char *argv0) {
     printf("    --sample-boost/-sb\n    \tfloat, sometimes samples are too quiet to display nicely, this boosts them by some factor\n");
     printf("    --width/-w\n    \tint, default is monitor width\n");
     printf("    --height/-h\n    \tint, default is monitor height\n");
+    printf("    --unlimited-fps\n    \ttoggle, don't limit FPS to monitor refresh rate\n");
     printf("    --log-timings\n    \ttoggle, spam stderr with render and processing timings\n");
     printf("    --flip-colors\n    \ttoggle, flips colors\n");
     printf("    --split-waves\n    \ttoggle, in --two-channels mode, split the 2 channels visually\n");
@@ -248,6 +249,11 @@ int cli_parse(int argc, char **argv, opts_t *opts) {
             continue;
         }
 
+        if (!strcmp(arg, "--unlimited-fps")) {
+            opts->unlimited_fps = 1;
+            continue;
+        }
+
         if (!strcmp(arg, "--log-timings")) {
             opts->log_timings = 1;
             continue;
@@ -287,6 +293,7 @@ int main(int argc, char **argv) {
         .height = 0,
         .pw_source = 0,
         .font = NULL,
+        .unlimited_fps = 0,
         .log_timings = 0,
         .flip_colors = 0,
         .split_waves = 0,

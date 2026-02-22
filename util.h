@@ -26,6 +26,7 @@ typedef struct opts_s {
 
     char *font;
 
+    bool unlimited_fps;
     bool log_timings;
     bool flip_colors;
     bool split_waves;
